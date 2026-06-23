@@ -333,8 +333,8 @@ jobs:
   # Phase 2 — CTS Graph features (delay, ROI, callback, pipeline)
   # NOTE: GraphPipeline.* stress loop counts are patched from 1000/100000/1000000
   #       down to 100 in the build-cts step, matching rustVX's CI approach.
-  #       Streaming tests are intentionally excluded here because streaming is
-  #       implemented in a separate PR/branch.
+  #       Streaming tests are covered in the separate cts-graph-features-streaming
+  #       job because streaming is implemented in this PR/branch.
   # ================================================================
   cts-graph-features:
     needs: build-cts
@@ -360,6 +360,36 @@ jobs:
           export VX_TEST_DATA_PATH=${{ github.workspace }}/cts/test_data/
           timeout 600 ./bin/vx_test_conformance \
             --filter="GraphDelay.*:GraphROI.*:GraphCallback.*:GraphPipeline.*:GraphPipe*" \
+            --verbose
+
+  # ================================================================
+  # Phase 2 — CTS Streaming extension
+  # ================================================================
+  cts-graph-features-streaming:
+    needs: build-cts
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - name: Download CTS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: openvx-cts
+          path: ${{ github.workspace }}
+
+      - name: Download debug build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: openvx-debug
+          path: ${{ github.workspace }}
+
+      - name: Run CTS — Graph Streaming
+        run: |
+          cd build-cts
+          chmod +x bin/vx_test_conformance
+          export LD_LIBRARY_PATH=${{ env.INSTALL_PREFIX }}/Linux/x64/Debug/lib
+          export VX_TEST_DATA_PATH=${{ github.workspace }}/cts/test_data/
+          timeout 1200 ./bin/vx_test_conformance \
+            --filter="GraphStreaming.*" \
             --verbose
 
   # ================================================================
