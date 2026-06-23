@@ -737,6 +737,12 @@ typedef struct _vx_kernel {
 #endif
     /*! \brief The pointer to the kernel object deinitializer. */
     vx_kernel_object_deinitialize_f kernel_object_deinitialize;
+#ifdef OPENVX_USE_STREAMING
+    /*! \brief Pipeup output depth for streaming nodes (default 1) */
+    vx_uint32 pipeup_output_depth;
+    /*! \brief Pipeup input depth for streaming nodes (default 1) */
+    vx_uint32 pipeup_input_depth;
+#endif
 } vx_kernel_t;
 
 /*! \brief The function which initializes the target
@@ -1152,6 +1158,16 @@ typedef struct _vx_node {
     vx_bool             is_replicated;
     /*! \brief The replicated parameters flags */
     vx_bool             replicated_flags[VX_INT_MAX_PARAMS];
+#ifdef OPENVX_USE_STREAMING
+    /*! \brief Node state: VX_NODE_STATE_STEADY or VX_NODE_STATE_PIPEUP */
+    vx_enum             node_state;
+    /*! \brief Current pipeup invocation count */
+    vx_uint32           pipeup_count;
+    /*! \brief Pipeup output depth copied from kernel */
+    vx_uint32           pipeup_output_depth;
+    /*! \brief Pipeup input depth copied from kernel */
+    vx_uint32           pipeup_input_depth;
+#endif
 } vx_node_t;
 
 /*! \brief The internal representation of a graph.
@@ -1230,6 +1246,18 @@ typedef struct _vx_graph {
     vx_int32       in_flight;
     /*! \brief Event signaled when worker becomes idle */
     vx_internal_event_t idle_event;
+#ifdef OPENVX_USE_STREAMING
+    /*! \brief Streaming enabled flag */
+    vx_bool             streaming_enabled;
+    /*! \brief Trigger node for streaming (NULL means any node completion) */
+    vx_node             streaming_trigger_node;
+    /*! \brief Streaming execution thread */
+    vx_thread_t         streaming_thread;
+    /*! \brief Streaming thread running flag */
+    vx_bool             streaming_thread_running;
+    /*! \brief Request streaming thread to stop */
+    vx_bool             streaming_stop;
+#endif
 #endif
 } vx_graph_t;
 

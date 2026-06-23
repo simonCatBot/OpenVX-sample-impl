@@ -254,7 +254,9 @@ void ownClearExecution(vx_graph graph)
 {
     vx_uint32 n = 0;
     for (n = 0; n < graph->numNodes; n++)
+    {
         graph->nodes[n]->executed = vx_false_e;
+    }
 }
 
 vx_status ownTraverseGraph(vx_graph graph,
@@ -587,6 +589,13 @@ VX_API_ENTRY vx_graph VX_API_CALL vxCreateGraph(vx_context c)
             graph->worker_stop = vx_false_e;
             graph->worker = 0;
             graph->in_flight = 0;
+#ifdef OPENVX_USE_STREAMING
+            graph->streaming_enabled = vx_false_e;
+            graph->streaming_trigger_node = NULL;
+            graph->streaming_thread_running = vx_false_e;
+            graph->streaming_stop = vx_false_e;
+            graph->streaming_thread = 0;
+#endif
             for (vx_uint32 i = 0; i < VX_INT_MAX_PARAMS; i++)
             {
                 graph->pipe[i].enabled = vx_false_e;
@@ -728,9 +737,19 @@ void ownDestructGraph(vx_reference ref)
         }
         ownDeinitQueue(&graph->pipe[i].ready_queue);
         ownDeinitQueue(&graph->pipe[i].done_queue);
-    }    ownDestroySem(&graph->trigger);
+    }
+    ownDestroySem(&graph->trigger);
     ownDestroySem(&graph->pipe_lock);
     ownDeinitEvent(&graph->idle_event);
+#ifdef OPENVX_USE_STREAMING
+    if (graph->streaming_thread_running == vx_true_e)
+    {
+        graph->streaming_stop = vx_true_e;
+        ownJoinThread(graph->streaming_thread, NULL);
+        graph->streaming_thread_running = vx_false_e;
+        graph->streaming_thread = 0;
+    }
+#endif
 #endif
     // execution lock?
     ownDestroySem(&graph->lock);
@@ -1000,6 +1019,17 @@ static vx_bool setup_output(vx_graph graph, vx_uint32 n, vx_uint32 p, vx_referen
 
     /* the type of the parameter is known by the system, so let the system set it by default. */
     (*meta)->type = graph->nodes[n]->kernel->signature.types[p];
+
+    /* When the kernel has no output validator, fill in the meta-format from the
+     * supplied reference so that post-processing can still validate the type. */
+    if ((*meta)->type == VX_TYPE_SCALAR)
+    {
+        vx_scalar_t *scalar = (vx_scalar_t *)graph->nodes[n]->parameters[p];
+        if (scalar != NULL && ownIsValidSpecificReference(&scalar->base, VX_TYPE_SCALAR) == vx_true_e)
+        {
+            (*meta)->dim.scalar.type = scalar->data_type;
+        }
+    }
 
     return vx_true_e;
 }
@@ -2008,7 +2038,11 @@ VX_API_ENTRY vx_status VX_API_CALL vxVerifyGraph(vx_graph graph)
                          (graph->nodes[n]->kernel->signature.directions[p] == VX_INPUT)) &&
                         (graph->nodes[n]->parameters[p] != NULL))
                     {
-                        vx_status input_validation_status = graph->nodes[n]->kernel->validate_input((vx_node)graph->nodes[n], p);
+                        vx_status input_validation_status = VX_SUCCESS;
+                        if (graph->nodes[n]->kernel->validate_input != NULL)
+                        {
+                            input_validation_status = graph->nodes[n]->kernel->validate_input((vx_node)graph->nodes[n], p);
+                        }
                         if (input_validation_status != VX_SUCCESS)
                         {
                             status = input_validation_status;
@@ -2037,7 +2071,10 @@ VX_API_ENTRY vx_status VX_API_CALL vxVerifyGraph(vx_graph graph)
                         vx_status output_validation_status = VX_SUCCESS;
                         if (setup_output(graph, n, p, &vref, &meta, &status, &num_errors) == vx_false_e)
                             break;
-                        output_validation_status = graph->nodes[n]->kernel->validate_output((vx_node)graph->nodes[n], p, meta);
+                        if (graph->nodes[n]->kernel->validate_output != NULL)
+                        {
+                            output_validation_status = graph->nodes[n]->kernel->validate_output((vx_node)graph->nodes[n], p, meta);
+                        }
                         if (output_validation_status == VX_SUCCESS)
                         {
                             if (postprocess_output(graph, n, p, vref, meta, &status, &num_errors) == vx_false_e)
