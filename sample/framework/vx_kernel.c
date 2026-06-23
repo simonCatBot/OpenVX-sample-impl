@@ -79,6 +79,13 @@ vx_kernel_t *ownAllocateKernel(vx_context context,
             free(kernel);
             kernel = NULL;
         }
+#ifdef OPENVX_USE_STREAMING
+        if (kernel != NULL)
+        {
+            kernel->pipeup_output_depth = 1;
+            kernel->pipeup_input_depth = 1;
+        }
+#endif
     }
     return kernel;
 }
@@ -122,6 +129,10 @@ vx_status ownInitializeKernel(vx_context context,
         kernel->attributes.localDataSize = 0;
 #ifdef OPENVX_USE_OPENCL_INTEROP
         kernel->attributes.opencl_access = vx_false_e;
+#endif
+#ifdef OPENVX_USE_STREAMING
+        kernel->pipeup_output_depth = 1;
+        kernel->pipeup_input_depth = 1;
 #endif
         if (kernel->signature.num_parameters <= VX_INT_MAX_PARAMS)
         {
@@ -508,9 +519,6 @@ static vx_kernel addkernel(vx_context c,
     }
 
     if (func_ptr == NULL ||
-        ((validate == NULL) &&
-         (input == NULL ||
-          output == NULL)) ||
         numParams > VX_INT_MAX_PARAMS || numParams == 0 ||
         name == NULL ||
         strncmp(name, "",  VX_MAX_KERNEL_NAME) == 0)
@@ -1039,6 +1047,36 @@ VX_API_ENTRY vx_status VX_API_CALL vxSetKernelAttribute(vx_kernel k, vx_enum att
             else
             {
                 status = VX_ERROR_INVALID_VALUE;
+            }
+            break;
+#endif
+#ifdef OPENVX_USE_STREAMING
+        case VX_KERNEL_PIPEUP_OUTPUT_DEPTH:
+            if (VX_CHECK_PARAM(ptr, size, vx_uint32, 0x3))
+            {
+                vx_uint32 depth = *(vx_uint32 *)ptr;
+                if (depth >= 1)
+                    kernel->pipeup_output_depth = depth;
+                else
+                    status = VX_ERROR_INVALID_PARAMETERS;
+            }
+            else
+            {
+                status = VX_ERROR_INVALID_PARAMETERS;
+            }
+            break;
+        case VX_KERNEL_PIPEUP_INPUT_DEPTH:
+            if (VX_CHECK_PARAM(ptr, size, vx_uint32, 0x3))
+            {
+                vx_uint32 depth = *(vx_uint32 *)ptr;
+                if (depth >= 1)
+                    kernel->pipeup_input_depth = depth;
+                else
+                    status = VX_ERROR_INVALID_PARAMETERS;
+            }
+            else
+            {
+                status = VX_ERROR_INVALID_PARAMETERS;
             }
             break;
 #endif

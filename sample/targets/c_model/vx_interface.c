@@ -196,81 +196,113 @@ vx_action vxTargetProcess(vx_target target, vx_node_t *nodes[], vx_size startInd
         if (context->perf_enabled)
             ownStartCapture(&nodes[n]->perf);
 
-        if (nodes[n]->is_replicated == vx_true_e)
         {
-            vx_size num_replicas = 0;
-            vx_uint32 param;
-            vx_uint32 num_parameters = nodes[n]->kernel->signature.num_parameters;
-            vx_reference parameters[VX_INT_MAX_PARAMS] = { NULL };
+            vx_uint32 p;
+            vx_uint32 max_depth = 1;
+            vx_uint32 target_pipeup_count = 0;
+            vx_bool node_is_steady = vx_false_e;
+#ifdef OPENVX_USE_STREAMING
+            max_depth = VX_MAX(nodes[n]->pipeup_output_depth, nodes[n]->pipeup_input_depth);
+#endif
+            target_pipeup_count = (max_depth > 1 ? max_depth - 1 : 0);
 
-            for (param = 0; param < num_parameters; ++param)
+            for (p = 0; (p <= target_pipeup_count) && (status == VX_SUCCESS); p++)
             {
-                if (nodes[n]->replicated_flags[param] == vx_true_e)
+#ifdef OPENVX_USE_STREAMING
+                if (nodes[n]->pipeup_count < target_pipeup_count)
                 {
-                    vx_size numItems = 0;
-                    if ((nodes[n]->parameters[param])->scope->type == VX_TYPE_PYRAMID)
-                    {
-                        vx_pyramid pyr = (vx_pyramid)(nodes[n]->parameters[param])->scope;
-                        numItems = pyr->numLevels;
-                    }
-                    else if ((nodes[n]->parameters[param])->scope->type == VX_TYPE_OBJECT_ARRAY)
-                    {
-                        vx_object_array arr = (vx_object_array)(nodes[n]->parameters[param])->scope;
-                        numItems = arr->num_items;
-                    }
-                    else
-                    {
-                        status = VX_ERROR_INVALID_PARAMETERS;
-                        break;
-                    }
-
-                    if (num_replicas == 0)
-                        num_replicas = numItems;
-                    else if (numItems != num_replicas)
-                    {
-                        status = VX_ERROR_INVALID_PARAMETERS;
-                        break;
-                    }
+                    nodes[n]->node_state = VX_NODE_STATE_PIPEUP;
+                    nodes[n]->pipeup_count++;
                 }
                 else
                 {
-                    parameters[param] = nodes[n]->parameters[param];
+                    nodes[n]->node_state = VX_NODE_STATE_STEADY;
+                    node_is_steady = vx_true_e;
                 }
-            }
+#endif
 
-            if (status == VX_SUCCESS)
-            {
-                vx_size replica;
-                for (replica = 0; replica < num_replicas; ++replica)
+                if (nodes[n]->is_replicated == vx_true_e)
                 {
+                    vx_size num_replicas = 0;
+                    vx_uint32 param;
+                    vx_uint32 num_parameters = nodes[n]->kernel->signature.num_parameters;
+                    vx_reference parameters[VX_INT_MAX_PARAMS] = { NULL };
+
                     for (param = 0; param < num_parameters; ++param)
                     {
                         if (nodes[n]->replicated_flags[param] == vx_true_e)
                         {
+                            vx_size numItems = 0;
                             if ((nodes[n]->parameters[param])->scope->type == VX_TYPE_PYRAMID)
                             {
                                 vx_pyramid pyr = (vx_pyramid)(nodes[n]->parameters[param])->scope;
-                                parameters[param] = (vx_reference)pyr->levels[replica];
+                                numItems = pyr->numLevels;
                             }
                             else if ((nodes[n]->parameters[param])->scope->type == VX_TYPE_OBJECT_ARRAY)
                             {
                                 vx_object_array arr = (vx_object_array)(nodes[n]->parameters[param])->scope;
-                                parameters[param] = (vx_reference)arr->items[replica];
+                                numItems = arr->num_items;
                             }
+                            else
+                            {
+                                status = VX_ERROR_INVALID_PARAMETERS;
+                                break;
+                            }
+
+                            if (num_replicas == 0)
+                                num_replicas = numItems;
+                            else if (numItems != num_replicas)
+                            {
+                                status = VX_ERROR_INVALID_PARAMETERS;
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            parameters[param] = nodes[n]->parameters[param];
                         }
                     }
 
+                    if (status == VX_SUCCESS)
+                    {
+                        vx_size replica;
+                        for (replica = 0; replica < num_replicas; ++replica)
+                        {
+                            for (param = 0; param < num_parameters; ++param)
+                            {
+                                if (nodes[n]->replicated_flags[param] == vx_true_e)
+                                {
+                                    if ((nodes[n]->parameters[param])->scope->type == VX_TYPE_PYRAMID)
+                                    {
+                                        vx_pyramid pyr = (vx_pyramid)(nodes[n]->parameters[param])->scope;
+                                        parameters[param] = (vx_reference)pyr->levels[replica];
+                                    }
+                                    else if ((nodes[n]->parameters[param])->scope->type == VX_TYPE_OBJECT_ARRAY)
+                                    {
+                                        vx_object_array arr = (vx_object_array)(nodes[n]->parameters[param])->scope;
+                                        parameters[param] = (vx_reference)arr->items[replica];
+                                    }
+                                }
+                            }
+
+                            status = nodes[n]->kernel->function((vx_node)nodes[n],
+                                parameters,
+                                num_parameters);
+                        }
+                    }
+                }
+                else
+                {
                     status = nodes[n]->kernel->function((vx_node)nodes[n],
-                        parameters,
-                        num_parameters);
+                        (vx_reference *)nodes[n]->parameters,
+                        nodes[n]->kernel->signature.num_parameters);
+                }
+
+                if (node_is_steady == vx_true_e)
+                {
+                    break;
                 }
             }
-        }
-        else
-        {
-            status = nodes[n]->kernel->function((vx_node)nodes[n],
-                (vx_reference *)nodes[n]->parameters,
-                nodes[n]->kernel->signature.num_parameters);
         }
 
         nodes[n]->executed = vx_true_e;

@@ -68,6 +68,20 @@ VX_API_ENTRY vx_node VX_API_CALL vxCreateGenericNode(vx_graph g, vx_kernel k)
                         /* copy the attributes over */
                         memcpy(&node->attributes, &kernel->attributes, sizeof(vx_kernel_attr_t));
 
+#ifdef OPENVX_USE_STREAMING
+                        if (kernel->pipeup_output_depth > 1 || kernel->pipeup_input_depth > 1)
+                        {
+                            node->node_state = VX_NODE_STATE_PIPEUP;
+                        }
+                        else
+                        {
+                            node->node_state = VX_NODE_STATE_STEADY;
+                        }
+                        node->pipeup_count = 0;
+                        node->pipeup_output_depth = kernel->pipeup_output_depth;
+                        node->pipeup_input_depth = kernel->pipeup_input_depth;
+#endif
+
                         /* setup our forward and back references to the node/graph */
                         graph->nodes[n] = node;
                         node->graph = graph;
@@ -262,6 +276,18 @@ VX_API_ENTRY vx_status VX_API_CALL vxQueryNode(vx_node n, vx_enum attribute, voi
                 }
             }
                 break;
+#ifdef OPENVX_USE_STREAMING
+            case VX_NODE_STATE:
+                if (VX_CHECK_PARAM(ptr, size, vx_enum, 0x3))
+                {
+                    *(vx_enum *)ptr = node->node_state;
+                }
+                else
+                {
+                    status = VX_ERROR_INVALID_PARAMETERS;
+                }
+                break;
+#endif
             case VX_NODE_VALID_RECT_RESET:
                 if (VX_CHECK_PARAM(ptr, size, vx_bool, 0x3))
                 {
